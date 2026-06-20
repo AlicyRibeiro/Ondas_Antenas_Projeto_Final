@@ -12,7 +12,7 @@ pico_sdk_init()
 
 # Define o nome do executável e os arquivos fonte
 add_executable(lora_node
-main/recebe.c
+main/transmite.c
 )
 
 # Adiciona as bibliotecas necessárias para uso do hardware
