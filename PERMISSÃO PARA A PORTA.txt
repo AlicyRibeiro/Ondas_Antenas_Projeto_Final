@@ -1,0 +1,219 @@
+
+PERMISSÃO PARA A PORTA DO ARDUINO
+sudo chmod a+rw /dev/ttyUSB0
+
+permissão para a porta da Pico
+sudo chmod a+rw /dev/ttyACM0
+
+Comando para mostrar a porta
+sudo dmesg | grep tty
+
+
+Abrir o IDE ARDUINO
+cd Downloads/
+chmod +x arduino-ide_2.3.10_Linux_64bit.AppImage
+./arduino-ide_2.3.10_Linux_64bit.AppImage
+
+
+Tabela de Conexão PICO
+
+Identificação no Módulo LoRa	Pino Físico da Pico W
+VCC / 3.3V				3V3(OUT)
+GND					GND		
+MISO / RX				GP16 (SPI0 RX)
+MOSI / TX				GP19 (SPI0 TX)
+SCK / CLK				GP18 (SPI0 SCK)
+NSS / CS				GP17 (SPI0 CSn)
+RST					GP20 (Digital IO)
+DIO0					GP21 (Digital IO)
+
+
+
+TABELA DE CONEXÃO DO ARDUINO COM LORA É RFID
+VCC: Ligue no pino 3.3V do Arduino (NUNCA no 5V, senão o LoRa queima na hora)
+
+GND: GND
+
+MISO: Pino 12
+
+MOSI: Pino 11
+
+SCK: Pino 13
+
+NSS (CS): Pino 10
+
+RST: Pino 9
+
+	
+
+TABELA DE CONEXÃO ESP32
+
+Pino no Periférico		Pino no ESP32 (GPIO)
+SCK (LoRa + RFID)			18
+MISO (LoRa + RFID)			19
+MOSI (LoRa + RFID)			23
+NSS  (LoRa)				5
+SDA (RFID)				22
+RST (LoRa)				15
+RST (RFID)				21
+       
+       
+       
+Passo 4: Transferir (Flash) o executável
+
+cp lora_node.uf2 /media/ana-ribeiro/RPI-RP2
+
+
+
+COMPILAÇÃO PICO:
+
+rm -rf *
+cmake ..
+make -j4
+
+
+Pino no RFID,	Função SPI,		Pino no Arduino,Observação
+3.3V,		Alimentação,		3V3,Nunca ligue no 5V!
+GND,		Terra,			GND,Comum
+MISO,		Master In Slave Out,	12,Compartilhado com o LoRa
+MOSI,Master Out Slave In,		11,Compartilhado com o LoRa
+SCK,Serial Clock,			13,Compartilhado com o LoRa
+SDA (SS),Chip Select,			Pino 4 (ou 8),Exclusivo do RFID (Evita conflito com o pino 10 do LoRa)
+RST,Reset,				Pino 5 (ou 7),Exclusivo do RFID (Evita conflito com o pino 9 do LoRa)
+IRQ,Interrupção,			Desconectado,Não é necessário
+
+
+--------------------------------------------------------------
+
+CODIGO ARDUINO QUE LE A TAG
+#include <SPI.h>
+#include <MFRC522.h>
+
+// ================= PINOS ARDUINO =================
+// Pinos SPI partilhados no Arduino Uno/Nano: SCK(13), MISO(12), MOSI(11)
+
+// Pinos LoRa
+const int LORA_NSS = 10;
+const int LORA_RST = 9;
+
+// Pinos exclusivos do RFID (Isolados do LoRa)
+#define RFID_SS         4
+#define RFID_RST        5
+
+// Cria a instância do leitor RFID
+MFRC522 mfrc522(RFID_SS, RFID_RST);
+
+// ================= FUNÇÕES SPI LORA =================
+void lora_write_byte(uint8_t addr, uint8_t data) {
+  digitalWrite(LORA_NSS, LOW);
+  SPI.transfer(addr | 0x80);
+  SPI.transfer(data);
+  digitalWrite(LORA_NSS, HIGH);
+}
+
+uint8_t lora_read_byte(uint8_t addr) {
+  digitalWrite(LORA_NSS, LOW);
+  SPI.transfer(addr & 0x7F);
+  uint8_t rx = SPI.transfer(0x00);
+  digitalWrite(LORA_NSS, HIGH);
+  return rx;
+}
+
+// ================= INICIALIZAÇÃO LORA (TX) =================
+void lora_init_tx() {
+  lora_write_byte(0x01, 0x80); delay(10); // Sleep mode
+  lora_write_byte(0x01, 0x81); delay(10); // Standby mode
+
+  lora_write_byte(0x06, 0x6C); // Frequência 433 MHz
+  lora_write_byte(0x07, 0x80);
+  lora_write_byte(0x08, 0x00);
+  
+  lora_write_byte(0x09, 0x8F); // PA Config (Potência Máxima)
+  lora_write_byte(0x0E, 0x80); // TX base
+  lora_write_byte(0x1D, 0x62); // BW = 62.5 kHz, CR = 4/5
+  lora_write_byte(0x1E, 0xB4); // SF11, CRC ON
+  lora_write_byte(0x26, 0x0C); // AGC ON
+  
+  // Sync Word (Crucial para o receptor da Pico aceitar a mensagem)
+  lora_write_byte(0x39, 0x12); 
+}
+
+// ================= TRANSMISSÃO LORA =================
+void lora_transmit(String msg) {
+  lora_write_byte(0x0D, 0x80); // Aponta para início do FIFO de transmissão
+  
+  // Preenche o FIFO com as letras da nossa Tag
+  for(unsigned int i = 0; i < msg.length(); i++) {
+      lora_write_byte(0x00, msg[i]);
+  }
+  
+  lora_write_byte(0x22, msg.length()); // Define o tamanho do pacote
+  lora_write_byte(0x01, 0x83); // Inicia transmissão (TX Mode)
+  
+  // Aguarda a flag de TXDone (transmissão finalizada)
+  while((lora_read_byte(0x12) & 0x08) == 0) { 
+      delay(1); 
+  }
+  
+  lora_write_byte(0x12, 0x08); // Limpa flag de interrupção
+  lora_write_byte(0x01, 0x81); // Volta o rádio para standby
+  
+  Serial.println(">>> Dado transmitido via LoRa! <<<");
+}
+
+// ================= SETUP =================
+void setup() {
+  // Inicia a comunicação serial com o computador
+  Serial.begin(115200);
+  while (!Serial);
+  
+  // Inicia o barramento SPI
+  SPI.begin();
+  
+  // Configuração dos pinos do LoRa
+  pinMode(LORA_NSS, OUTPUT);
+  digitalWrite(LORA_NSS, HIGH);
+  pinMode(LORA_RST, OUTPUT);
+  
+  // Reseta o LoRa fisicamente
+  digitalWrite(LORA_RST, LOW); delay(10); 
+  digitalWrite(LORA_RST, HIGH); delay(10);
+  
+  // Configura o LoRa internamente
+  lora_init_tx();
+
+  // Inicia o módulo RFID
+  mfrc522.PCD_Init();
+  
+  Serial.println("\n==========================================");
+  Serial.println("[SISTEMA] Transmissor LoRa + RFID Iniciado!");
+  Serial.println("Aproxime uma TAG do leitor...");
+  Serial.println("==========================================\n");
+}
+
+// ================= LOOP =================
+void loop() {
+  // Verifica se há um novo cartão/tag presente
+  if ( ! mfrc522.PICC_IsNewCardPresent()) return;
+  if ( ! mfrc522.PICC_ReadCardSerial()) return;
+
+  // Monta a String no formato que o Painel Python espera (ex: TAG:4AF5FA03)
+  String uidString = "TAG:";
+  for (byte i = 0; i < mfrc522.uid.size; i++) {
+      uidString += String(mfrc522.uid.uidByte[i] < 0x10 ? "0" : "");
+      uidString += String(mfrc522.uid.uidByte[i], HEX);
+  }
+  uidString.toUpperCase();
+
+  Serial.println("Lida " + uidString);
+  
+  // Envia a String lida pelo ar usando o LoRa
+  lora_transmit(uidString);
+  
+  // Finaliza a leitura da Tag para não ler repetido
+  mfrc522.PICC_HaltA();       
+  mfrc522.PCD_StopCrypto1();  
+  
+  // Pausa antes da próxima leitura
+  delay(1000); 
+}
