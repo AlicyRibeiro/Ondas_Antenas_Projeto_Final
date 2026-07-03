@@ -7,11 +7,11 @@ elétrica**. O Pico também expõe um log estruturado que pode ser lido por
 um **painel gráfico no computador** (`bluepass_monitor.py`).
 
 ```
-┌──────────────┐        LoRa 433MHz        ┌──────────────────┐        USB Serial       ┌────────────────┐
-│   Arduino    │ ───────────────────────▶  │  Raspberry Pi     │ ───────────────────────▶ │  bluepass_      │
-│  + Leitor    │                            │  Pico              │                          │  monitor.py     │
-│  RFID        │ ◀─────────────────────── │  (SX1278 + Trava)  │                           │  (PC / Desktop) │
-└──────────────┘      ACK (permitido/negado)└──────────────────┘                           └────────────────┘
+┌──────────────┐        LoRa 433MHz          ┌──────────────────┐        USB Serial          ┌────────────────┐
+│   Arduino    │ ───────────────────────▶    │  Raspberry Pi    │ ───────────────────────▶   │  bluepass_     │
+│  + Leitor    │                             │  Pico            │                            │  monitor.py    │
+│  RFID        │ ◀───────────────────────    │  (SX1278 + Trava)│                            │  (PC / Desktop)│
+└──────────────┘      ACK (permitido/negado) └──────────────────┘                            └────────────────┘
 ```
 
 ---
