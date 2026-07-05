@@ -375,27 +375,11 @@ Ondas_Antenas_Projeto_Final/
 ├── .gitignore
 ├── README.md
 ├── Docs/
-│   ├── permissoes_porta.txt       <-- Renomeado de "PERMISSÃO PARA A PORTA.txt"
-│   └── guardados.txt              <-- (Avalie se este arquivo é necessário)
-├── Interface/                       <-- Mantém os arquivos da interface gráfica aqui
-├── Nó_Transmissor_STM32/          <-- Todo o projeto C vai para cá
-│   ├── Makefile
-│   ├── STM32F103C8TX_FLASH.ld
-│   ├── startup_stm32f103c8tx.s
-│   ├── Drivers/
-│   │   └── CMSIS/
-│   ├── Src/
-│   │   ├── main.c
-│   │   ├── lora.c
-│   │   ├── rc522.c
-│   │   ├── rgb.c
-│   │   └── usart.c
-│   └── Inc/
-│       ├── lora.h
-│       ├── rc522.h
-│       ├── rgb.h
-│       ├── usart.h
-│       └── Serial backend.h       <-- (Sugestão: renomear para serial_backend.h sem espaços)
-└── Nó_Receptor_Pico/              <-- Todo o projeto MicroPython vai para cá
-    └── main.py                    <-- Renomeado de "Pico_lora.PY" (o Pico roda o main.py no boot)
+│   ├── permissoes_porta.txt      
+│   └── guardados.txt             
+├── Interface/                       
+├── Nó_Transmissor_STM32/          
+│   ├── transmite_arduino.c.ino
+└── Nó_Receptor_Pico/              
+    └── main.py                    
 ```
