@@ -135,11 +135,7 @@ def marca_tempo():
 
 
 def log(mensagem, tag=None):
-    """
-    Impressão padrão com carimbo de tempo — uso geral no console.
-    Se `tag` for informado, ela é exibida entre colchetes e alinhada
-    (ex: log("Trava aberta", tag="TRAVA")).
-    """
+
     if tag:
         print("[{}] [{:<7}] {}".format(marca_tempo(), tag, mensagem))
     else:
@@ -218,11 +214,7 @@ def formatar_snr(snr):
 
 
 def caixa_evento_acesso(liberado, uid, rssi, snr):
-    """
-    Imprime um quadro compacto resumindo o evento de acesso, com
-    UID, RSSI e SNR em campos próprios e bem alinhados — pensado
-    para ser lido de relance no console do Thonny.
-    """
+
     largura = _LARGURA_DIVISOR
     status_txt = "LIBERADO \u2713" if liberado else "NEGADO  \u2717"
 
@@ -298,9 +290,10 @@ class RadioSX1278:
         self.escrever_registrador(REG_OCP, 0x3B)
         self.escrever_registrador(REG_LNA, 0x23)
 
-        self.escrever_registrador(REG_MODEM_CONFIG_1, 0x72)
-        self.escrever_registrador(REG_MODEM_CONFIG_2, 0x74)
-        self.escrever_registrador(REG_MODEM_CONFIG_3, 0x04)
+        # Parâmetros de Modulação CSS
+        self.escrever_registrador(REG_MODEM_CONFIG_1, 0x72) # Largura de Banda + Coding Rate
+        self.escrever_registrador(REG_MODEM_CONFIG_2, 0x74) # Spreading Factor
+        self.escrever_registrador(REG_MODEM_CONFIG_3, 0x04)	 # Low Data Rate Optimize
 
         self.escrever_registrador(REG_PREAMBLE_MSB, 0x00)
         self.escrever_registrador(REG_PREAMBLE_LSB, 0x08)
@@ -326,21 +319,7 @@ class RadioSX1278:
         self._ultimo_flags_diag = None
 
     def verificar_recepcao(self):
-        """
-        Faz polling do registrador de flags. Retorna (dados, rssi, snr)
-        ou (None, None, None) quando não há pacote pronto.
 
-        SNR:
-            O módulo lora guarda RegPktSnrValue como um byte com sinal, em
-            passos de 0,25 dB (ex.: valor bruto 40 -> SNR = +10.0 dB).
-
-        RSSI:
-            Quando o SNR é negativo, o valor bruto de RSSI subestima a
-            potência real do sinal recebido (o pacote foi decodificado
-            "abaixo do ruído"). Nesse caso, soma-se o SNR à leitura
-            crua para chegar num RSSI mais realista — é a correção
-            recomendada pela Semtech para a porta LF (<525 MHz).
-        """
         flags = self.ler_registrador(REG_IRQ_FLAGS)
 
         if not (flags & IRQ_RX_DONE):
@@ -461,7 +440,7 @@ def processar_pacote(radio, trava, dados, rssi, snr):
         caixa_evento_acesso(liberado=True, uid=uid, rssi=rssi, snr=snr)
         log_gui(uid=uid, acesso_permitido=True, rssi=rssi, snr=snr)
 
-        # 1. Envia o ACK imediatamente (evita timeout no Arduino)
+        # 1. Envia o ACK(Reconhecimento) imediatamente 
         resposta = b"ACESSO PERMITIDO\n"
         radio.transmitir(resposta)
         log("TX ACK: {}".format(resposta.decode().strip()), tag="LORA")
