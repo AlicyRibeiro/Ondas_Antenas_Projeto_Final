@@ -40,6 +40,18 @@ Nota sobre RSSI x SNR:
     o SNR (relação sinal-ruído) esteja numa faixa aceitável. Por
     isso o firmware agora lê os dois valores do rádio e mostra
     ambos lado a lado no console.
+
+Nota sobre a estimativa de distância:
+    O rádio NÃO mede distância diretamente — não há GPS nem sensor
+    de tempo-de-voo neste hardware. O que se faz aqui é uma
+    ESTIMATIVA a partir do RSSI, usando o modelo de perda de
+    percurso logarítmica (log-distance path loss model), o mesmo
+    princípio da atenuação no espaço livre discutido na
+    fundamentação teórica do relatório. Essa estimativa PRECISA
+    ser calibrada experimentalmente (ver instruções na seção de
+    configuração abaixo) e deve ser tratada como uma ordem de
+    grandeza, não como uma medição precisa — reflexões, obstáculos
+    e a invasão da Zona de Fresnel introduzem erro significativo.
 ============================================================
 """
 
@@ -69,6 +81,38 @@ LORA_FREQUENCIA_HZ = 433_000_000
 
 # Intervalo do heartbeat (ms)
 INTERVALO_HEARTBEAT_MS = 5000
+
+# ─────────────────────────────────────────────────────────────
+# Estimativa de distância a partir do RSSI
+# ─────────────────────────────────────────────────────────────
+# Modelo de perda de percurso logarítmica (log-distance path loss):
+#
+#     RSSI(d) = RSSI_REF - 10 * n * log10(d / d_REF)
+#
+# Isolando "d" (a distância que queremos estimar):
+#
+#     d = d_REF * 10 ** ((RSSI_REF - RSSI) / (10 * n))
+#
+# ── COMO CALIBRAR (faça isso antes de confiar no valor exibido) ──
+#
+# 1) Posicione os dois módulos a uma distância conhecida e fixa,
+#    em linha de visada direta e sem obstáculos (ex: 1 metro).
+# 2) Anote o RSSI médio reportado no console nessa distância.
+# 3) Substitua RSSI_REF_DBM pelo valor medido e DISTANCIA_REF_M
+#    pela distância usada no teste.
+# 4) (Opcional, mas recomendado) Repita a medição em uma segunda
+#    distância maior (ex: 20 m) e ajuste EXPOENTE_PERDA_PERCURSO
+#    até que a distância estimada bata com a distância real medida
+#    com trena/fita métrica nesse segundo ponto.
+#
+RSSI_REF_DBM = -65           # <-- RSSI medido na distância de referência (CALIBRE ISSO)
+DISTANCIA_REF_M = 1.0        # <-- distância usada na calibração acima (em metros)
+
+# Expoente de perda de percurso (n). Valores típicos de referência:
+#     n ≈ 2.0        -> espaço livre, sem obstáculos (ideal, ambiente aberto)
+#     n ≈ 2.7 a 3.5   -> ambiente interno, com paredes/obstáculos parciais
+#     n ≈ 4.0 ou mais -> ambiente muito obstruído (múltiplas paredes, metal)
+EXPOENTE_PERDA_PERCURSO = 3.5
 
 # ─────────────────────────────────────────────────────────────
 # Registradores do SX1278
@@ -153,14 +197,21 @@ def cabecalho(titulo):
     print("=" * _LARGURA_DIVISOR)
 
 
-def log_gui(uid="", acesso_permitido=False, rssi=0, snr=0.0):
+def log_gui(uid="", acesso_permitido=False, rssi=0, snr=0.0, distancia_m=None):
     """
     Linha compacta 'de máquina', consumida pelo painel de monitoramento.
-    Agora inclui também o SNR, além de UID/RESULT/RSSI.
+    Agora inclui também a distância estimada (DIST), além de
+    UID/RESULT/RSSI/SNR.
+
+    ATENÇÃO: se o seu bluepass_monitor.py já faz parsing dessa linha
+    (ex: via split() ou regex), será necessário atualizá-lo para ler
+    também o novo campo DIST — do contrário ele simplesmente vai
+    ignorar o valor extra, sem quebrar nada.
     """
     resultado = "PERMITIDO" if acesso_permitido else "NEGADO"
-    print("RFID: UID={}  RESULT={}  RSSI={}  SNR={:.1f}".format(
-        uid, resultado, rssi, snr))
+    dist_str = "{:.1f}".format(distancia_m) if distancia_m is not None else "NA"
+    print("RFID: UID={}  RESULT={}  RSSI={}  SNR={:.1f}  DIST={}".format(
+        uid, resultado, rssi, snr, dist_str))
 
 
 def proxima_frase_heartbeat():
@@ -213,7 +264,37 @@ def formatar_snr(snr):
     return "{:>5.1f} dB ({})".format(snr, qualidade_snr(snr))
 
 
-def caixa_evento_acesso(liberado, uid, rssi, snr):
+def estimar_distancia_m(rssi):
+    """
+    Estima a distância (em metros) entre os dois módulos LoRa a partir
+    do RSSI, usando o modelo de perda de percurso logarítmica:
+
+        d = d_REF * 10 ** ((RSSI_REF - RSSI) / (10 * n))
+
+    IMPORTANTE: isto é uma ESTIMATIVA e depende diretamente da
+    calibração de RSSI_REF_DBM, DISTANCIA_REF_M e
+    EXPOENTE_PERDA_PERCURSO (ver comentários na seção de configuração,
+    no topo do arquivo). Sem calibração, o valor retornado pode
+    divergir bastante da distância real.
+    """
+    try:
+        expoente = (RSSI_REF_DBM - rssi) / (10.0 * EXPOENTE_PERDA_PERCURSO)
+        distancia = DISTANCIA_REF_M * (10 ** expoente)
+        return distancia
+    except (ZeroDivisionError, ValueError):
+        return None
+
+
+def formatar_distancia(distancia_m):
+    """Ex.: '≈ 12.4 m' ou '≈ 80 cm' — usado nas linhas de log legíveis por humanos."""
+    if distancia_m is None:
+        return "indisponível"
+    if distancia_m < 1.0:
+        return "≈ {:.0f} cm".format(distancia_m * 100)
+    return "≈ {:.1f} m".format(distancia_m)
+
+
+def caixa_evento_acesso(liberado, uid, rssi, snr, distancia_m):
 
     largura = _LARGURA_DIVISOR
     status_txt = "LIBERADO \u2713" if liberado else "NEGADO  \u2717"
@@ -228,9 +309,10 @@ def caixa_evento_acesso(liberado, uid, rssi, snr):
         ("UID", uid),
         ("RSSI", formatar_rssi(rssi)),
         ("SNR", formatar_snr(snr)),
+        ("Distância (est.)", formatar_distancia(distancia_m)),
     )
     for rotulo, valor in linhas:
-        print("│ {:<10}: {}".format(rotulo, valor))
+        print("│ {:<16}: {}".format(rotulo, valor))
 
     print("└{}".format("─" * (largura - 1)))
 
@@ -435,10 +517,13 @@ def processar_pacote(radio, trava, dados, rssi, snr):
 
     uid = mensagem[4:]  # Extrai "XX:XX:XX:XX"
 
+    # Estimativa de distância a partir do RSSI deste pacote
+    distancia_m = estimar_distancia_m(rssi)
+
     if uid == UID_AUTORIZADO:
         # ── ACESSO LIBERADO ──
-        caixa_evento_acesso(liberado=True, uid=uid, rssi=rssi, snr=snr)
-        log_gui(uid=uid, acesso_permitido=True, rssi=rssi, snr=snr)
+        caixa_evento_acesso(liberado=True, uid=uid, rssi=rssi, snr=snr, distancia_m=distancia_m)
+        log_gui(uid=uid, acesso_permitido=True, rssi=rssi, snr=snr, distancia_m=distancia_m)
 
         # 1. Envia o ACK(Reconhecimento) imediatamente 
         resposta = b"ACESSO PERMITIDO\n"
@@ -451,8 +536,8 @@ def processar_pacote(radio, trava, dados, rssi, snr):
 
     else:
         # ── ACESSO NEGADO ──
-        caixa_evento_acesso(liberado=False, uid=uid, rssi=rssi, snr=snr)
-        log_gui(uid=uid, acesso_permitido=False, rssi=rssi, snr=snr)
+        caixa_evento_acesso(liberado=False, uid=uid, rssi=rssi, snr=snr, distancia_m=distancia_m)
+        log_gui(uid=uid, acesso_permitido=False, rssi=rssi, snr=snr, distancia_m=distancia_m)
 
         resposta = b"ACESSO NEGADO\n"
         radio.transmitir(resposta)
